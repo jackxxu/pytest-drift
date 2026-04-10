@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytest-drift"
+version = "0.1.0"
+description = "Pytest plugin for regression testing via branch comparison"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pytest>=7.0",
+    "cloudpickle>=3.0",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+datacompy = ["datacompy>=0.9"]
+parquet = ["pyarrow>=10.0"]
+dev = [
+    "pytest",
+    "pandas",
+    "numpy",
+    "datacompy>=0.9",
+    "pyarrow>=10.0",
+]
+
+[project.entry-points.pytest11]
+drift = "pytest_drift.plugin"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pytest_drift*"]
