@@ -60,6 +60,7 @@ def run_base_branch(
     worktree_path: Path,
     node_ids: list[str],
     results_dir: Path,
+    base_python: str | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> "subprocess.Popen[bytes]":
     """
@@ -67,8 +68,14 @@ def run_base_branch(
 
     The subprocess runs in BASE mode: it captures return values and writes
     them to results_dir/base/, but does not start another subprocess.
+
+    base_python: path to an alternative Python executable (e.g. a venv's
+    python) to use for the base branch run. Defaults to the current
+    interpreter (sys.executable).
     """
     import os
+
+    python = base_python or sys.executable
 
     env = os.environ.copy()
     env["PYTEST_DRIFT_MODE"] = "base"
@@ -79,7 +86,7 @@ def run_base_branch(
         env.update(extra_env)
 
     cmd = [
-        sys.executable,
+        python,
         "-m",
         "pytest",
         "--no-header",

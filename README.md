@@ -38,6 +38,21 @@ export PYTEST_DRIFT_BASE_BRANCH=main
 pytest
 ```
 
+### Different dependency versions for the base branch
+
+If the base branch runs against a different set of packages (e.g. you're upgrading a dependency), create a separate venv for it and point `--drift-base-python` at its interpreter:
+
+```bash
+# One-time setup: create a venv with the base branch's dependencies
+python -m venv /tmp/base-env
+/tmp/base-env/bin/pip install -r requirements-base.txt
+
+# Run drift using that venv for the base branch run
+pytest --drift=main --drift-base-python=/tmp/base-env/bin/python
+```
+
+The env var equivalent is `PYTEST_DRIFT_BASE_PYTHON`. When omitted, the base branch uses the same Python interpreter as the current session.
+
 ## Writing regression tests
 
 Return a value from your test — that's it:
