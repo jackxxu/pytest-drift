@@ -30,10 +30,12 @@ class RegressionPlugin:
         base_branch: str,
         results_dir: Path,
         mode: str,  # "head" or "base"
+        base_python: str | None = None,
     ) -> None:
         self.base_branch = base_branch
         self.results_dir = results_dir
         self.mode = mode
+        self.base_python = base_python
 
         # Populated during the HEAD run
         self._head_node_ids: list[str] = []
@@ -87,6 +89,7 @@ class RegressionPlugin:
                     worktree_path,
                     self._collected_node_ids,
                     self.results_dir,
+                    base_python=self.base_python,
                 )
                 self._base_proc = proc
                 stdout, stderr = proc.communicate()
@@ -243,6 +246,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Enable regression mode: compare test return values against BASE_BRANCH.",
     )
+    parser.addoption(
+        "--drift-base-python",
+        metavar="PYTHON",
+        default=None,
+        help="Python executable to use for the base branch run (e.g. /path/to/venv/bin/python). "
+             "Defaults to the current interpreter.",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -280,10 +290,15 @@ def pytest_configure(config: pytest.Config) -> None:
     (results_dir / "head").mkdir()
     (results_dir / "base").mkdir()
 
+    base_python = config.getoption("--drift-base-python", default=None)
+    if base_python is None:
+        base_python = os.environ.get("PYTEST_DRIFT_BASE_PYTHON")
+
     plugin = RegressionPlugin(
         base_branch=base_branch,
         results_dir=results_dir,
         mode="head",
+        base_python=base_python,
     )
     config.pluginmanager.register(plugin, "regression_plugin")
     config.addinivalue_line(
