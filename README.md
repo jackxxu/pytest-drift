@@ -118,6 +118,20 @@ git worktree add ──▶  BASE tests run in parallel  ────┘  compare
 | `datacompy >= 0.9` | Optional | Rich DataFrame diff reports |
 | `pyarrow >= 10.0` | Optional | Parquet storage for large DataFrames |
 
+## Comparison with similar tools
+
+| | pytest-drift | syrupy / pytest-snapshot | pytest-regressions |
+|---|---|---|---|
+| Baseline source | git branch (live re-run) | committed snapshot file | committed YAML/CSV file |
+| Baseline stays fresh | yes — base branch always re-runs | only when you update snapshots | only when you update fixtures |
+| Detects environment drift | yes — same code path, different branch | no | no |
+| Test changes required | no — just `return` a value | yes — use a snapshot fixture | yes — use a regression fixture |
+| DataFrame support | yes, with datacompy | via custom serializer | yes, via `dataframe_regression` |
+
+**When to use pytest-drift** — you want to catch regressions introduced by your current branch without manually maintaining baseline files. Ideal for data pipelines, model outputs, or any function whose output is hard to specify upfront but easy to compare.
+
+**When to use snapshot tools** — you want a stable, reviewable artifact in version control. Snapshots are better when the baseline should be human-readable or when you're not working in a git-branch workflow.
+
 ## Caveats
 
 - The base branch subprocess uses the same Python environment as HEAD — if your project uses `tox` or `nox`, point to the correct environment
