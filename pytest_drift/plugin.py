@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from . import ci as ci_module
 from . import compare as cmp_module
 from . import storage
 from .pandas_utils import ComparisonResult
@@ -186,6 +187,12 @@ class RegressionPlugin:
 
             self._comparison_results.append(result)
 
+        # --- CI reporting (non-failing) ---
+        ci_module.emit_warnings(self._comparison_results)
+        ci_module.emit_github_annotations(self._comparison_results)
+        ci_module.write_github_step_summary(self._comparison_results, self._missing_base)
+        ci_module.write_junit_xml(self._comparison_results, self._missing_base)
+
         # Clean up temp results dir
         try:
             shutil.rmtree(self.results_dir, ignore_errors=True)
@@ -226,10 +233,10 @@ class RegressionPlugin:
             terminalreporter.write_sep("-", "Base branch stderr")
             terminalreporter.write_line(self._base_stderr[:2000])
 
-        # Mark session as failed if any regressions
-        any_failed = any(not r.equal for r in self._comparison_results)
-        if any_failed:
-            terminalreporter.write_sep("=", "DRIFT FAILURES DETECTED", red=True)
+        # Highlight if any values changed (not a failure — may be intentional)
+        any_drifted = any(not r.equal for r in self._comparison_results)
+        if any_drifted:
+            terminalreporter.write_sep("=", "DRIFTS DETECTED (review required)", yellow=True)
 
 
 # ---------------------------------------------------------------------------

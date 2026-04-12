@@ -26,11 +26,11 @@ def format_regression_summary(
     failed = [r for r in results if not r.equal]
 
     for result in passed:
-        status = _green("PASSED", use_color)
+        status = _green("STABLE", use_color)
         lines.append(f"{status} {result.node_id}")
 
     for result in failed:
-        status = _red("FAILED", use_color)
+        status = _yellow("DRIFTED", use_color)
         lines.append(f"{status} {result.node_id}")
         if result.report:
             # Indent and truncate long reports
@@ -48,7 +48,7 @@ def format_regression_summary(
 
     lines.append("-" * width)
     lines.append(
-        f"{len(passed)} passed, {len(failed)} failed "
+        f"{len(passed)} stable, {len(failed)} drifted "
         f"({len(results)} total drift comparisons)"
     )
     lines.append("")
@@ -65,4 +65,10 @@ def _green(text: str, use_color: bool) -> str:
 def _red(text: str, use_color: bool) -> str:
     if use_color:
         return f"\033[31m{text}\033[0m"
+    return text
+
+
+def _yellow(text: str, use_color: bool) -> str:
+    if use_color:
+        return f"\033[33m{text}\033[0m"
     return text
