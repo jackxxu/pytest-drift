@@ -1,7 +1,9 @@
 """CI-specific drift reporting: GitHub Actions annotations, step summary, JUnit XML."""
 from __future__ import annotations
 
+import json
 import os
+import urllib.request
 import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -115,11 +117,182 @@ def write_github_step_summary(
 
 
 # ---------------------------------------------------------------------------
-# GitLab CI / generic JUnit XML
+# GitHub PR comment
+# ---------------------------------------------------------------------------
+
+def _get_pr_number() -> int | None:
+    """Extract PR number from the GitHub Actions event payload."""
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return None
+    try:
+        with open(event_path, encoding="utf-8") as f:
+            event = json.load(f)
+        return event["pull_request"]["number"]
+    except Exception:
+        return None
+
+
+def _build_pr_comment(
+    results: list[ComparisonResult],
+    missing_base: list[str],
+) -> str:
+    failed = [r for r in results if not r.equal]
+    passed = [r for r in results if r.equal]
+
+    lines: list[str] = []
+    lines.append("## pytest-drift report")
+    lines.append("")
+    lines.append(
+        f"**{len(failed)} changed** / {len(passed)} stable "
+        f"({len(results)} total comparisons)"
+    )
+    lines.append("")
+    lines.append(
+        "> Drifted tests returned a different value than the base branch. "
+        "This may be intentional — review before merging."
+    )
+    lines.append("")
+
+    if failed:
+        lines.append("### Changed tests")
+        lines.append("")
+        lines.append("| Test | Details |")
+        lines.append("| ---- | ------- |")
+        for r in failed:
+            detail = ""
+            if r.report:
+                first_line = r.report.splitlines()[0] if r.report.splitlines() else ""
+                detail = first_line[:120]
+            lines.append(f"| `{r.node_id}` | {detail} |")
+        lines.append("")
+
+    if missing_base:
+        lines.append("### Tests with no base-branch result")
+        lines.append("")
+        for node_id in missing_base:
+            lines.append(f"- `{node_id}`")
+        lines.append("")
+
+    if passed:
+        lines.append(f"<details><summary>{len(passed)} stable test(s)</summary>\n")
+        for r in passed:
+            lines.append(f"- `{r.node_id}`")
+        lines.append("\n</details>")
+
+    return "\n".join(lines)
+
+
+def post_github_pr_comment(
+    results: list[ComparisonResult],
+    missing_base: list[str],
+) -> None:
+    """Post a drift summary comment on the GitHub PR conversation tab."""
+    if not _is_github_actions():
+        return
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return
+
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    pr_number = _get_pr_number()
+
+    if not token or not repo or not pr_number:
+        return
+
+    # Only comment when there is something to report
+    failed = [r for r in results if not r.equal]
+    if not failed and not missing_base:
+        return
+
+    body = _build_pr_comment(results, missing_base)
+    payload = json.dumps({"body": body}).encode("utf-8")
+    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        warnings.warn(
+            f"pytest-drift: failed to post GitHub PR comment: {e}",
+            DriftWarning,
+            stacklevel=2,
+        )
+
+
+# ---------------------------------------------------------------------------
+# GitLab CI — MR note + JUnit XML
 # ---------------------------------------------------------------------------
 
 def _is_gitlab_ci() -> bool:
     return os.environ.get("GITLAB_CI") == "true"
+
+
+def post_gitlab_mr_note(
+    results: list[ComparisonResult],
+    missing_base: list[str],
+) -> None:
+    """Post a drift summary note on the GitLab MR conversation tab.
+
+    Requires the pipeline to be triggered by a merge request (so that
+    CI_MERGE_REQUEST_IID is set) and either GITLAB_TOKEN (a project/PAT token
+    with api scope) or CI_JOB_TOKEN in the environment.
+    """
+    if not _is_gitlab_ci():
+        return
+
+    mr_iid = os.environ.get("CI_MERGE_REQUEST_IID")
+    if not mr_iid:
+        return  # not a merge-request pipeline
+
+    # Only comment when there is something to report
+    failed = [r for r in results if not r.equal]
+    if not failed and not missing_base:
+        return
+
+    project_id = os.environ.get("CI_PROJECT_ID")
+    server_url = os.environ.get("CI_SERVER_URL", "https://gitlab.com").rstrip("/")
+
+    # Prefer an explicit token; fall back to the built-in job token
+    token = os.environ.get("GITLAB_TOKEN")
+    auth_header = ("PRIVATE-TOKEN", token) if token else ("JOB-TOKEN", os.environ.get("CI_JOB_TOKEN", ""))
+
+    if not project_id or not auth_header[1]:
+        return
+
+    body = _build_pr_comment(results, missing_base)
+    payload = json.dumps({"body": body}).encode("utf-8")
+    url = f"{server_url}/api/v4/projects/{project_id}/merge_requests/{mr_iid}/notes"
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            auth_header[0]: auth_header[1],
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        warnings.warn(
+            f"pytest-drift: failed to post GitLab MR note: {e}",
+            DriftWarning,
+            stacklevel=2,
+        )
 
 
 def write_junit_xml(

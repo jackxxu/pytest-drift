@@ -191,6 +191,8 @@ class RegressionPlugin:
         ci_module.emit_warnings(self._comparison_results)
         ci_module.emit_github_annotations(self._comparison_results)
         ci_module.write_github_step_summary(self._comparison_results, self._missing_base)
+        ci_module.post_github_pr_comment(self._comparison_results, self._missing_base)
+        ci_module.post_gitlab_mr_note(self._comparison_results, self._missing_base)
         ci_module.write_junit_xml(self._comparison_results, self._missing_base)
 
         # Clean up temp results dir

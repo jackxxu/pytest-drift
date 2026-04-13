@@ -118,6 +118,53 @@ git worktree add ──▶  BASE tests run in parallel  ────┘  compare
 | `datacompy >= 0.9` | Optional | Rich DataFrame diff reports |
 | `pyarrow >= 10.0` | Optional | Parquet storage for large DataFrames |
 
+## CI integration
+
+### GitHub Actions
+
+pytest-drift posts a comment on the PR conversation tab when drift is detected. Two requirements:
+
+1. **`GITHUB_TOKEN` permissions** — add `pull-requests: write` to your workflow:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+```
+
+2. **Trigger on pull requests** — the comment only fires when `GITHUB_EVENT_NAME == "pull_request"`. Make sure your workflow runs on the `pull_request` event:
+
+```yaml
+on: [pull_request]
+```
+
+`GITHUB_TOKEN` and all other required variables (`GITHUB_REPOSITORY`, `GITHUB_EVENT_PATH`) are provided automatically by GitHub Actions — no extra configuration needed beyond the permission above.
+
+The step summary (visible on the Actions run page) is written regardless of event type and requires no additional permissions.
+
+### GitLab CI
+
+pytest-drift posts a note on the MR conversation tab when drift is detected. Two requirements:
+
+1. **Merge request pipeline** — `CI_MERGE_REQUEST_IID` must be set, which only happens in MR pipelines. Configure your job with:
+
+```yaml
+rules:
+  - if: $CI_MERGE_REQUEST_IID
+```
+
+2. **API token** — set a project access token or PAT with `api` scope as a CI/CD variable named `GITLAB_TOKEN`. If `GITLAB_TOKEN` is not set, the plugin falls back to `CI_JOB_TOKEN`, but job token permissions for MR notes are restricted in newer GitLab versions so an explicit token is recommended.
+
+`CI_PROJECT_ID`, `CI_SERVER_URL`, and `CI_JOB_TOKEN` are provided automatically by GitLab CI.
+
+The JUnit XML report (`drift-report.xml`) is written independently and does not require a token — wire it up in your job artifacts to surface drift in the MR test widget:
+
+```yaml
+artifacts:
+  reports:
+    junit: drift-report.xml
+```
+
 ## Comparison with similar tools
 
 | | pytest-drift | syrupy / pytest-snapshot | pytest-regressions |
