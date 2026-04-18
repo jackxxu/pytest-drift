@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import shutil
 import tempfile
@@ -46,6 +47,9 @@ class RegressionPlugin:
         self._worktree_mgr: WorktreeManager | None = None
         self._worktree_path: Path | None = None
         self._git_root: Path | None = None
+
+        # Return values captured by the wrapping in pytest_itemcollected
+        self._captured_results: dict = {}
 
         # Final comparison results (populated in sessionfinish)
         self._comparison_results: list[ComparisonResult] = []
@@ -104,31 +108,46 @@ class RegressionPlugin:
         self._base_thread.start()
 
     # ------------------------------------------------------------------
-    # Hook: intercept test return values
+    # Hook: wrap test functions at collection time so the capturing
+    # wrapper is in place *before* pytest-asyncio's runtest() wraps
+    # the obj with _synchronize_coroutine.
+    # ------------------------------------------------------------------
+    def pytest_itemcollected(self, item: pytest.Item) -> None:
+        if not isinstance(item, pytest.Function):
+            return
+
+        original_obj = item.obj
+        is_async = asyncio.iscoroutinefunction(original_obj)
+        captured_results = self._captured_results
+
+        if is_async:
+            @functools.wraps(original_obj)
+            async def capturing_wrapper(*args, **kwargs):
+                result = await original_obj(*args, **kwargs)
+                if result is not None:
+                    captured_results[item.nodeid] = result
+                return result
+
+            item.obj = capturing_wrapper
+        else:
+            @functools.wraps(original_obj)
+            def capturing_wrapper(*args, **kwargs):
+                result = original_obj(*args, **kwargs)
+                if result is not None:
+                    captured_results[item.nodeid] = result
+                return result
+
+            item.obj = capturing_wrapper
+
+    # ------------------------------------------------------------------
+    # Hook: store captured return values after each test runs
     # ------------------------------------------------------------------
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_pyfunc_call(self, pyfuncitem: pytest.Function):
-        original_obj = pyfuncitem.obj
-        captured: dict = {}
+        outcome = yield
 
-        if asyncio.iscoroutinefunction(original_obj):
-            async def capturing_wrapper(*args, **kwargs):
-                result = await original_obj(*args, **kwargs)
-                captured["result"] = result
-                return result
-        else:
-            def capturing_wrapper(*args, **kwargs):
-                result = original_obj(*args, **kwargs)
-                captured["result"] = result
-                return result
+        return_value = self._captured_results.pop(pyfuncitem.nodeid, None)
 
-        pyfuncitem.obj = capturing_wrapper
-        try:
-            outcome = yield
-        finally:
-            pyfuncitem.obj = original_obj
-
-        return_value = captured.get("result")
         if return_value is not None:
             result_path = storage.make_result_path(
                 self.results_dir, self.mode, pyfuncitem.nodeid
