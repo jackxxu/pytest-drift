@@ -68,31 +68,21 @@ def write_github_step_summary(
     failed = [r for r in results if not r.equal]
     passed = [r for r in results if r.equal]
 
-    lines.append("## Drift Report")
-    lines.append("")
-    lines.append("> ℹ️ Drifted tests changed their return value from the base branch. This may be intentional — review before merging.")
+    lines.append("## pytest-drift report")
     lines.append("")
 
     if not results and not missing_base:
         lines.append("> No drift comparisons were performed.")
     else:
         lines.append(
-            f"**{len(failed)} changed** / {len(passed)} stable "
+            f"**{len(failed)} drifted** / {len(passed)} stable "
             f"({len(results)} total comparisons)"
         )
         lines.append("")
 
         if failed:
-            lines.append("### Changed tests")
-            lines.append("")
-            lines.append("| Test | Details |")
-            lines.append("| ---- | ------- |")
             for r in failed:
-                detail = ""
-                if r.report:
-                    first_line = r.report.splitlines()[0] if r.report.splitlines() else ""
-                    detail = first_line[:120]
-                lines.append(f"| `{r.node_id}` | {detail} |")
+                lines.append(f"- `{r.node_id}`")
             lines.append("")
 
         if missing_base:
@@ -144,27 +134,14 @@ def _build_pr_comment(
     lines.append("## pytest-drift report")
     lines.append("")
     lines.append(
-        f"**{len(failed)} changed** / {len(passed)} stable "
+        f"**{len(failed)} drifted** / {len(passed)} stable "
         f"({len(results)} total comparisons)"
-    )
-    lines.append("")
-    lines.append(
-        "> Drifted tests returned a different value than the base branch. "
-        "This may be intentional — review before merging."
     )
     lines.append("")
 
     if failed:
-        lines.append("### Changed tests")
-        lines.append("")
-        lines.append("| Test | Details |")
-        lines.append("| ---- | ------- |")
         for r in failed:
-            detail = ""
-            if r.report:
-                first_line = r.report.splitlines()[0] if r.report.splitlines() else ""
-                detail = first_line[:120]
-            lines.append(f"| `{r.node_id}` | {detail} |")
+            lines.append(f"- `{r.node_id}`")
         lines.append("")
 
     if missing_base:
