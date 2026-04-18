@@ -250,9 +250,14 @@ class RegressionPlugin:
                     f"  WARNING: base branch did not produce a result for {node_id!r}"
                 )
 
-        if self._base_stderr:
-            terminalreporter.write_sep("-", "Base branch stderr")
-            terminalreporter.write_line(self._base_stderr[:2000])
+        if self._base_stderr and (not self._comparison_results or self._missing_base):
+            # Only show stderr when it might explain missing results.
+            terminalreporter.write_sep("-", "Base branch stderr (summary)")
+            # Show just the first few lines, not full tracebacks.
+            lines = self._base_stderr.strip().splitlines()
+            error_lines = [l for l in lines if l.strip().startswith("ERROR") or l.strip().startswith("FAILED")]
+            for line in (error_lines or lines)[:5]:
+                terminalreporter.write_line(f"  {line.strip()}")
 
         # Highlight if any values changed (not a failure — may be intentional)
         any_drifted = any(not r.equal for r in self._comparison_results)
