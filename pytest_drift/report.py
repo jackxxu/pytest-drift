@@ -35,7 +35,7 @@ def format_regression_summary(
         if result.report:
             # Indent and truncate long reports
             report_lines = result.report.splitlines()
-            max_lines = 40
+            max_lines = 80
             if len(report_lines) > max_lines:
                 report_lines = report_lines[:max_lines] + [
                     f"  ... ({len(report_lines) - max_lines} more lines)"
