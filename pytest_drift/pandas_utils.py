@@ -83,6 +83,10 @@ def compare_dataframes(
 
     # Try datacompy first
     try:
+        # mask unnecessary warnings 
+        import logging as _logging
+        for _lg in ("datacompy.fugue", "datacompy.snowflake", "datacompy.spark.sql"):
+            _logging.getLogger(_lg).setLevel(_logging.ERROR)
         import datacompy
 
         if not hasattr(datacompy, "Compare"):
