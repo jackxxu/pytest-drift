@@ -63,7 +63,11 @@ def _reset_named_index(df: "pd.DataFrame") -> "pd.DataFrame":
     import pandas as pd
 
     if not isinstance(df.index, pd.RangeIndex):
-        return df.reset_index()
+        # Use drop=True if index name already exists as a column to avoid
+        # "cannot insert <name>, already exists" errors.
+        index_names = df.index.names if isinstance(df.index, pd.MultiIndex) else [df.index.name]
+        conflict = any(name in df.columns for name in index_names if name is not None)
+        return df.reset_index(drop=conflict)
     return df
 
 
