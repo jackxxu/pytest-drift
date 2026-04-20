@@ -106,6 +106,8 @@ def compare_dataframes(
             join_columns=join_columns,
             df1_name="head",
             df2_name="base",
+            abs_tol=1e-8,
+            rel_tol=1e-5,
         )
         equal = cmp.matches()
         return ComparisonResult(
