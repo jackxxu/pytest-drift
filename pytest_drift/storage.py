@@ -58,19 +58,25 @@ def deserialize(path: Path) -> Any:
     """Deserialize obj from path."""
     data = path.read_bytes()
 
-    if data == b"__parquet__":
+    if data in (b"__parquet__", b"__parquet_series__"):
         import pandas as pd
 
         parquet_path = path.with_suffix(".parquet")
-        return pd.read_parquet(parquet_path)
-    elif data == b"__parquet_series__":
-        import pandas as pd
+        try:
+            df = pd.read_parquet(parquet_path)
+        except TypeError:
+            # Parquet files store pandas metadata including original column-index
+            # dtypes. pyarrow tries to cast back to e.g. datetime64[D] which
+            # pandas >= 2.0 rejects.  Re-read without pandas metadata to avoid.
+            import pyarrow.parquet as pq
+            table = pq.read_table(parquet_path)
+            table = table.replace_schema_metadata({})
+            df = table.to_pandas()
 
-        parquet_path = path.with_suffix(".parquet")
-        df = pd.read_parquet(parquet_path)
-        # Return the first (and only) column as a Series
-        col = df.columns[0]
-        return df[col]
+        if data == b"__parquet_series__":
+            col = df.columns[0]
+            return df[col]
+        return df
 
     import cloudpickle
 
