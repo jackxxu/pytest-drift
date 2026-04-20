@@ -11,6 +11,33 @@ class WorktreeError(Exception):
     pass
 
 
+def filter_existing_node_ids(worktree_path: Path, node_ids: list[str]) -> list[str]:
+    """Filter node_ids to only those whose test functions exist in the worktree."""
+    existing = []
+    for node_id in node_ids:
+        # node_id format: "tests/file.py::test_name" or "tests/file.py::test_name[param]"
+        parts = node_id.split("::")
+        if len(parts) < 2:
+            existing.append(node_id)
+            continue
+
+        file_path = worktree_path / parts[0]
+        if not file_path.exists():
+            continue
+
+        # Extract function name (strip parametrize suffix)
+        func_name = parts[1].split("[")[0]
+
+        try:
+            content = file_path.read_text()
+            if f"def {func_name}" in content:
+                existing.append(node_id)
+        except Exception:
+            existing.append(node_id)
+
+    return existing
+
+
 def get_git_root(cwd: Path) -> Path:
     """Return the root of the git repository."""
     result = subprocess.run(
@@ -78,17 +105,18 @@ def run_base_branch(
     if extra_env:
         env.update(extra_env)
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        "--no-header",
-        "-q",
-        "--tb=no",
-        "-p",
-        "pytest_drift",
-        *node_ids,
-    ]
+    # Write a wrapper script instead of passing node_ids on the command line,
+    # to avoid Windows' command-line length limit ([WinError 206]).
+    import json
+    import tempfile
+    args = ["--no-header", "-q", "--tb=no", "-p", "pytest_drift", *node_ids]
+    script = tempfile.NamedTemporaryFile(
+        suffix=".py", delete=False, mode="w", dir=str(results_dir),
+    )
+    script.write(f"import sys, pytest; sys.exit(pytest.main({json.dumps(args)}))")
+    script.close()
+
+    cmd = [sys.executable, script.name]
 
     proc = subprocess.Popen(
         cmd,
