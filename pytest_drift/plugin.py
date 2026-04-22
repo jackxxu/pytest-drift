@@ -17,7 +17,7 @@ from . import compare as cmp_module
 from . import storage
 from .pandas_utils import ComparisonResult
 from .report import format_regression_summary
-from .runner import WorktreeError, WorktreeManager, get_git_root, run_base_branch
+from .runner import WorktreeError, WorktreeManager, filter_existing_node_ids, get_git_root, run_base_branch
 
 if TYPE_CHECKING:
     pass
@@ -88,9 +88,14 @@ class RegressionPlugin:
                 return
 
             try:
+                node_ids = filter_existing_node_ids(
+                    worktree_path, self._collected_node_ids
+                )
+                if not node_ids:
+                    return
                 proc = run_base_branch(
                     worktree_path,
-                    self._collected_node_ids,
+                    node_ids,
                     self.results_dir,
                 )
                 self._base_proc = proc

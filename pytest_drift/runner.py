@@ -102,6 +102,11 @@ def run_base_branch(
     env["PYTEST_DRIFT_RESULTS_DIR"] = str(results_dir)
     # Prevent the subprocess from re-activating regression mode via CLI option
     env.pop("PYTEST_DRIFT_BASE_BRANCH", None)
+    # Ensure the worktree root is on sys.path so imports resolve even if the
+    # base branch lacks a setup.cfg / pyproject.toml with pythonpath config.
+    existing = env.get("PYTHONPATH", "")
+    wt = str(worktree_path)
+    env["PYTHONPATH"] = f"{wt}{os.pathsep}{existing}" if existing else wt
     if extra_env:
         env.update(extra_env)
 
@@ -109,7 +114,12 @@ def run_base_branch(
     # to avoid Windows' command-line length limit ([WinError 206]).
     import json
     import tempfile
-    args = ["--no-header", "-q", "--tb=no", "-p", "pytest_drift", *node_ids]
+    args = [
+        "--no-header", "-q", "--tb=no",
+        "-p", "pytest_drift",
+        "--rootdir", str(worktree_path),
+        *node_ids,
+    ]
     script = tempfile.NamedTemporaryFile(
         suffix=".py", delete=False, mode="w", dir=str(results_dir),
     )
