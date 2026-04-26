@@ -62,6 +62,14 @@ class WorktreeManager:
         self.branch = branch
 
     def __enter__(self) -> Path:
+        # Ensure the base branch ref is available locally (CI runners
+        # typically do shallow, single-branch clones).
+        subprocess.run(
+            ["git", "fetch", "origin", self.branch],
+            cwd=self.git_root,
+            capture_output=True,
+        )
+
         result = subprocess.run(
             ["git", "worktree", "add", str(self.worktree_path), self.branch],
             cwd=self.git_root,
