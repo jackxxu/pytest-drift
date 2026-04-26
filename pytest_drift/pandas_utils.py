@@ -82,12 +82,17 @@ def compare_dataframes(
     head_flat = _reset_named_index(head_df)
     base_flat = _reset_named_index(base_df)
 
+    # Short-circuit: two empty DataFrames with the same columns are equal
+    if len(head_flat) == 0 and len(base_flat) == 0:
+        if list(head_flat.columns) == list(base_flat.columns):
+            return ComparisonResult(equal=True, report=None)
+
     if join_columns is None:
         join_columns = detect_index_columns(head_flat)
 
     # Try datacompy first
     try:
-        # mask unnecessary warnings 
+        # mask unnecessary warnings
         import logging as _logging
         for _lg in ("datacompy.fugue", "datacompy.snowflake", "datacompy.spark.sql"):
             _logging.getLogger(_lg).setLevel(_logging.ERROR)
