@@ -71,7 +71,7 @@ class WorktreeManager:
         )
 
         result = subprocess.run(
-            ["git", "worktree", "add", str(self.worktree_path), self.branch],
+            ["git", "worktree", "add", "--detach", str(self.worktree_path), f"origin/{self.branch}"],
             cwd=self.git_root,
             capture_output=True,
             text=True,
