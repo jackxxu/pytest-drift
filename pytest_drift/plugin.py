@@ -32,10 +32,12 @@ class RegressionPlugin:
         base_branch: str,
         results_dir: Path,
         mode: str,  # "head" or "base"
+        sequential: bool = False,
     ) -> None:
         self.base_branch = base_branch
         self.results_dir = results_dir
         self.mode = mode
+        self.sequential = sequential
 
         # Populated during the HEAD run
         self._head_node_ids: list[str] = []
@@ -54,6 +56,7 @@ class RegressionPlugin:
         # Final comparison results (populated in sessionfinish)
         self._comparison_results: list[ComparisonResult] = []
         self._missing_base: list[str] = []
+        self._base_stdout: str = ""
         self._base_stderr: str = ""
 
     # ------------------------------------------------------------------
@@ -79,38 +82,41 @@ class RegressionPlugin:
             self._git_root, worktree_path, self.base_branch
         )
 
-        def _run_base() -> None:
-            try:
-                self._worktree_mgr.__enter__()
-            except WorktreeError as e:
-                # Store error; will be reported in sessionfinish
-                self._base_stderr = str(e)
+        if not self.sequential:
+            self._base_thread = threading.Thread(target=self._run_base, daemon=True)
+            self._base_thread.start()
+
+    # ------------------------------------------------------------------
+    # Run base-branch tests in a worktree subprocess
+    # ------------------------------------------------------------------
+    def _run_base(self) -> None:
+        try:
+            self._worktree_mgr.__enter__()
+        except WorktreeError as e:
+            self._base_stderr = str(e)
+            return
+
+        try:
+            node_ids = filter_existing_node_ids(
+                self._worktree_path, self._collected_node_ids
+            )
+            if not node_ids:
                 return
-
+            proc = run_base_branch(
+                self._worktree_path,
+                node_ids,
+                self.results_dir,
+            )
+            self._base_proc = proc
+            stdout, stderr = proc.communicate()
+            self._base_stdout = stdout.decode(errors="replace")
+            self._base_stderr = stderr.decode(errors="replace")
+        finally:
+            self._worktree_mgr.__exit__(None, None, None)
             try:
-                node_ids = filter_existing_node_ids(
-                    worktree_path, self._collected_node_ids
-                )
-                if not node_ids:
-                    return
-                proc = run_base_branch(
-                    worktree_path,
-                    node_ids,
-                    self.results_dir,
-                )
-                self._base_proc = proc
-                stdout, stderr = proc.communicate()
-                self._base_stderr = stderr.decode(errors="replace")
-            finally:
-                self._worktree_mgr.__exit__(None, None, None)
-                # Clean up the temp worktree dir
-                try:
-                    shutil.rmtree(worktree_path, ignore_errors=True)
-                except Exception:
-                    pass
-
-        self._base_thread = threading.Thread(target=_run_base, daemon=True)
-        self._base_thread.start()
+                shutil.rmtree(self._worktree_path, ignore_errors=True)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Hook: wrap test functions at collection time so the capturing
@@ -179,8 +185,10 @@ class RegressionPlugin:
         if self.mode != "head":
             return
 
-        # Wait for the base subprocess
-        if self._base_thread is not None:
+        # Run or wait for the base subprocess
+        if self.sequential and self._worktree_mgr is not None:
+            self._run_base()
+        elif self._base_thread is not None:
             self._base_thread.join()
 
         if not self._head_node_ids:
@@ -255,10 +263,15 @@ class RegressionPlugin:
                     f"  WARNING: base branch did not produce a result for {node_id!r}"
                 )
 
+        if self._missing_base and self._base_stdout:
+            terminalreporter.write_sep("-", "Base branch stdout (summary)")
+            lines = self._base_stdout.strip().splitlines()
+            error_lines = [l for l in lines if "FAILED" in l or "ERROR" in l or "error" in l.lower()]
+            for line in (error_lines or lines[-10:])[:10]:
+                terminalreporter.write_line(f"  {line.strip()}")
+
         if self._base_stderr and (not self._comparison_results or self._missing_base):
-            # Only show stderr when it might explain missing results.
             terminalreporter.write_sep("-", "Base branch stderr (summary)")
-            # Show just the first few lines, not full tracebacks.
             lines = self._base_stderr.strip().splitlines()
             error_lines = [l for l in lines if l.strip().startswith("ERROR") or l.strip().startswith("FAILED")]
             for line in (error_lines or lines)[:5]:
@@ -280,6 +293,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="BASE_BRANCH",
         default=None,
         help="Enable regression mode: compare test return values against BASE_BRANCH.",
+    )
+    parser.addoption(
+        "--drift-sequential",
+        action="store_true",
+        default=False,
+        help="Run base-branch tests after HEAD tests finish (instead of concurrently).",
     )
 
 
@@ -313,6 +332,10 @@ def pytest_configure(config: pytest.Config) -> None:
     if not base_branch:
         return  # Plugin not activated
 
+    sequential = config.getoption("--drift-sequential", default=False)
+    if not sequential:
+        sequential = os.environ.get("PYTEST_DRIFT_SEQUENTIAL", "").lower() in ("1", "true", "yes")
+
     # Create temp results directory
     results_dir = Path(tempfile.mkdtemp(prefix="pytest_regression_"))
     (results_dir / "head").mkdir()
@@ -322,6 +345,7 @@ def pytest_configure(config: pytest.Config) -> None:
         base_branch=base_branch,
         results_dir=results_dir,
         mode="head",
+        sequential=sequential,
     )
     config.pluginmanager.register(plugin, "regression_plugin")
     config.addinivalue_line(
