@@ -75,27 +75,6 @@ class RegressionPlugin:
 
     _debug_checked = False
 
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_runtest_setup(self, item: pytest.Item) -> None:
-        """Check if lu has wrapped execute_db_query (runs once, after session fixtures)."""
-        if self._debug_checked or self.mode != "base":
-            return
-        self._debug_checked = True
-        try:
-            import laz.util.sqlutil as sqlutil
-            func = getattr(sqlutil, 'execute_db_query', None)
-            if func is None:
-                print("[drift-debug] mode=base execute_db_query NOT FOUND on module", flush=True)
-            else:
-                is_wrapped = hasattr(func, '__wrapped__') or 'wrapper' in getattr(func, '__qualname__', '')
-                print(f"[drift-debug] mode=base execute_db_query wrapped={is_wrapped} qualname={getattr(func, '__qualname__', '?')}", flush=True)
-                # Also check recordings dir
-                import lu as lu_mod
-                if hasattr(lu_mod, '_active_recorder'):
-                    print(f"[drift-debug] mode=base lu recorder active", flush=True)
-        except Exception as e:
-            print(f"[drift-debug] mode=base sqlutil check failed: {e}", flush=True)
-
     # ------------------------------------------------------------------
     # Hook: after collection, start base-branch run in background (HEAD only)
     # ------------------------------------------------------------------
@@ -192,6 +171,16 @@ class RegressionPlugin:
     # ------------------------------------------------------------------
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_pyfunc_call(self, pyfuncitem: pytest.Function):
+        if not self._debug_checked and self.mode == "base":
+            self._debug_checked = True
+            try:
+                import laz.util.sqlutil as sqlutil
+                func = getattr(sqlutil, 'execute_db_query', None)
+                qualname = getattr(func, '__qualname__', '?') if func else 'NOT_FOUND'
+                is_wrapped = func is not None and ('wrapper' in qualname or hasattr(func, '__wrapped__'))
+                print(f"[drift-debug] mode=base execute_db_query wrapped={is_wrapped} qualname={qualname}", flush=True)
+            except Exception as e:
+                print(f"[drift-debug] mode=base sqlutil check failed: {e}", flush=True)
         outcome = yield
 
         return_value = self._captured_results.pop(pyfuncitem.nodeid, None)
