@@ -63,17 +63,38 @@ class RegressionPlugin:
     # Hook: print diagnostics at session start (temporary debugging)
     # ------------------------------------------------------------------
     def pytest_sessionstart(self, session: pytest.Session) -> None:
-        import sys
         print(f"[drift-debug] mode={self.mode} cwd={os.getcwd()}", flush=True)
         print(f"[drift-debug] mode={self.mode} rootdir={session.config.rootdir}", flush=True)
-        # Check if laz.config.cache is importable and print its directory settings
         try:
             from laz.config.cache import caches
             for name, cache in caches.items():
                 print(f"[drift-debug] mode={self.mode} cache[{name}].directory={os.path.abspath(cache.directory)}", flush=True)
-                break  # just show one to confirm the path
+                break
         except Exception as e:
             print(f"[drift-debug] mode={self.mode} laz.config.cache import failed: {e}", flush=True)
+
+    _debug_checked = False
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_setup(self, item: pytest.Item) -> None:
+        """Check if lu has wrapped execute_db_query (runs once, after session fixtures)."""
+        if self._debug_checked or self.mode != "base":
+            return
+        self._debug_checked = True
+        try:
+            import laz.util.sqlutil as sqlutil
+            func = getattr(sqlutil, 'execute_db_query', None)
+            if func is None:
+                print("[drift-debug] mode=base execute_db_query NOT FOUND on module", flush=True)
+            else:
+                is_wrapped = hasattr(func, '__wrapped__') or 'wrapper' in getattr(func, '__qualname__', '')
+                print(f"[drift-debug] mode=base execute_db_query wrapped={is_wrapped} qualname={getattr(func, '__qualname__', '?')}", flush=True)
+                # Also check recordings dir
+                import lu as lu_mod
+                if hasattr(lu_mod, '_active_recorder'):
+                    print(f"[drift-debug] mode=base lu recorder active", flush=True)
+        except Exception as e:
+            print(f"[drift-debug] mode=base sqlutil check failed: {e}", flush=True)
 
     # ------------------------------------------------------------------
     # Hook: after collection, start base-branch run in background (HEAD only)
