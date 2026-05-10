@@ -131,7 +131,13 @@ def run_base_branch(
     script = tempfile.NamedTemporaryFile(
         suffix=".py", delete=False, mode="w", dir=str(results_dir),
     )
-    script.write(f"import sys, pytest; sys.exit(pytest.main({json.dumps(args)}))")
+    script.write(
+        "import os, sys\n"
+        "print(f'[drift-debug] mode=base cwd={os.getcwd()}', flush=True)\n"
+        "print(f'[drift-debug] mode=base sys.path={sys.path[:5]}', flush=True)\n"
+        "print(f'[drift-debug] mode=base PYTHONPATH={os.environ.get(\"PYTHONPATH\", \"\")[:200]}', flush=True)\n"
+        f"import pytest; sys.exit(pytest.main({json.dumps(args)}))"
+    )
     script.close()
 
     cmd = [sys.executable, script.name]
