@@ -60,6 +60,22 @@ class RegressionPlugin:
         self._base_stderr: str = ""
 
     # ------------------------------------------------------------------
+    # Hook: print diagnostics at session start (temporary debugging)
+    # ------------------------------------------------------------------
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        import sys
+        print(f"[drift-debug] mode={self.mode} cwd={os.getcwd()}", flush=True)
+        print(f"[drift-debug] mode={self.mode} rootdir={session.config.rootdir}", flush=True)
+        # Check if laz.config.cache is importable and print its directory settings
+        try:
+            from laz.config.cache import caches
+            for name, cache in caches.items():
+                print(f"[drift-debug] mode={self.mode} cache[{name}].directory={os.path.abspath(cache.directory)}", flush=True)
+                break  # just show one to confirm the path
+        except Exception as e:
+            print(f"[drift-debug] mode={self.mode} laz.config.cache import failed: {e}", flush=True)
+
+    # ------------------------------------------------------------------
     # Hook: after collection, start base-branch run in background (HEAD only)
     # ------------------------------------------------------------------
     def pytest_collection_finish(self, session: pytest.Session) -> None:
