@@ -123,7 +123,7 @@ def run_base_branch(
     import json
     import tempfile
     args = [
-        "--no-header", "-q", "--tb=no",
+        "--no-header", "-q", "--tb=line",
         "-p", "pytest_drift",
         "--rootdir", str(worktree_path),
         *node_ids,
