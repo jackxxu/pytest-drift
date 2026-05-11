@@ -174,11 +174,19 @@ class RegressionPlugin:
         if not self._debug_checked and self.mode == "base":
             self._debug_checked = True
             try:
+                import sys as _sys
                 import laz.util.sqlutil as sqlutil
                 func = getattr(sqlutil, 'execute_db_query', None)
                 qualname = getattr(func, '__qualname__', '?') if func else 'NOT_FOUND'
                 is_wrapped = func is not None and ('wrapper' in qualname or hasattr(func, '__wrapped__'))
                 print(f"[drift-debug] mode=base execute_db_query wrapped={is_wrapped} qualname={qualname}", flush=True)
+                print(f"[drift-debug] mode=base sqlutil.__file__={getattr(sqlutil, '__file__', '?')}", flush=True)
+                print(f"[drift-debug] mode=base lu.yaml exists={os.path.exists('lu.yaml')} cwd={os.getcwd()}", flush=True)
+                # Check if lu Recorder is active by looking at whether the function has been replaced
+                if 'lu' in _sys.modules:
+                    print(f"[drift-debug] mode=base lu module loaded from {getattr(_sys.modules['lu'], '__file__', '?')}", flush=True)
+                else:
+                    print(f"[drift-debug] mode=base lu module NOT in sys.modules", flush=True)
             except Exception as e:
                 print(f"[drift-debug] mode=base sqlutil check failed: {e}", flush=True)
         outcome = yield
