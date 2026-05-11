@@ -107,6 +107,7 @@ def run_base_branch(
 
     env = os.environ.copy()
     env["PYTEST_DRIFT_MODE"] = "base"
+    env["LU_DEBUG"] = "1"
     env["PYTEST_DRIFT_RESULTS_DIR"] = str(results_dir)
     # Prevent the subprocess from re-activating regression mode via CLI option
     env.pop("PYTEST_DRIFT_BASE_BRANCH", None)
@@ -139,6 +140,14 @@ def run_base_branch(
         "rec_dir = 'tests/fixtures/recordings'\n"
         "rec_files = os.listdir(rec_dir) if os.path.isdir(rec_dir) else []\n"
         "print(f'[drift-debug] mode=base recordings_dir={os.path.abspath(rec_dir)} count={len(rec_files)}', flush=True)\n"
+        "print(f'[drift-debug] mode=base LU_DEBUG={os.environ.get(\"LU_DEBUG\", \"NOT_SET\")}', flush=True)\n"
+        "try:\n"
+        "    import lu\n"
+        "    lu_file = getattr(lu, '__file__', '?')\n"
+        "    has_hit = 'lu-debug' in open(lu_file).read() if lu_file != '?' else False\n"
+        "    print(f'[drift-debug] mode=base lu.__file__={lu_file} has_debug={has_hit}', flush=True)\n"
+        "except Exception as e:\n"
+        "    print(f'[drift-debug] mode=base lu import check failed: {e}', flush=True)\n"
         f"import pytest; sys.exit(pytest.main({json.dumps(args)}))"
     )
     script.close()
