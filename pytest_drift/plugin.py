@@ -300,7 +300,7 @@ class RegressionPlugin:
         if self._missing_base and self._base_stdout:
             terminalreporter.write_sep("-", "Base branch stdout (summary)")
             lines = self._base_stdout.strip().splitlines()
-            debug_lines = [l for l in lines if "[drift-debug]" in l]
+            debug_lines = [l for l in lines if "[drift-debug]" in l or "[lu-debug]" in l]
             error_lines = [l for l in lines if "FAILED" in l or "ERROR" in l or "error" in l.lower()]
             for line in debug_lines:
                 terminalreporter.write_line(f"  {line.strip()}")
