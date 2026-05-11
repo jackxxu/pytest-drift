@@ -136,6 +136,9 @@ def run_base_branch(
         "print(f'[drift-debug] mode=base cwd={os.getcwd()}', flush=True)\n"
         "print(f'[drift-debug] mode=base sys.path={sys.path[:5]}', flush=True)\n"
         "print(f'[drift-debug] mode=base PYTHONPATH={os.environ.get(\"PYTHONPATH\", \"\")[:200]}', flush=True)\n"
+        "rec_dir = 'tests/fixtures/recordings'\n"
+        "rec_files = os.listdir(rec_dir) if os.path.isdir(rec_dir) else []\n"
+        "print(f'[drift-debug] mode=base recordings_dir={os.path.abspath(rec_dir)} count={len(rec_files)}', flush=True)\n"
         f"import pytest; sys.exit(pytest.main({json.dumps(args)}))"
     )
     script.close()
