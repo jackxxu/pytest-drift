@@ -70,8 +70,19 @@ class WorktreeManager:
             capture_output=True,
         )
 
+        # Prefer the freshly fetched remote ref to avoid stale local-branch
+        # state, but fall back to the local branch when there's no matching
+        # remote (e.g. local-only repos).
+        ref = f"origin/{self.branch}"
+        if subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref],
+            cwd=self.git_root,
+            capture_output=True,
+        ).returncode != 0:
+            ref = self.branch
+
         result = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(self.worktree_path), f"origin/{self.branch}"],
+            ["git", "worktree", "add", "--detach", str(self.worktree_path), ref],
             cwd=self.git_root,
             capture_output=True,
             text=True,

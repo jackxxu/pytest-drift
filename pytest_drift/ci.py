@@ -216,6 +216,36 @@ def _is_gitlab_ci() -> bool:
     return os.environ.get("GITLAB_CI") == "true"
 
 
+# Label applied to the MR when any test drifts; removed when none drift.
+GITLAB_DRIFT_LABEL = "drift"
+
+
+def _gitlab_mr_context() -> tuple[str, str, str, tuple[str, str]] | None:
+    """Resolve the GitLab MR API context, or None if not in an MR pipeline.
+
+    Returns ``(server_url, project_id, mr_iid, auth_header)`` where
+    ``auth_header`` is a ``(name, value)`` pair.
+    """
+    if not _is_gitlab_ci():
+        return None
+
+    mr_iid = os.environ.get("CI_MERGE_REQUEST_IID")
+    if not mr_iid:
+        return None  # not a merge-request pipeline
+
+    project_id = os.environ.get("CI_PROJECT_ID")
+    server_url = os.environ.get("CI_SERVER_URL", "https://gitlab.com").rstrip("/")
+
+    # Prefer an explicit token; fall back to the built-in job token
+    token = os.environ.get("GITLAB_TOKEN")
+    auth_header = ("PRIVATE-TOKEN", token) if token else ("JOB-TOKEN", os.environ.get("CI_JOB_TOKEN", ""))
+
+    if not project_id or not auth_header[1]:
+        return None
+
+    return server_url, project_id, mr_iid, auth_header
+
+
 def post_gitlab_mr_note(
     results: list[ComparisonResult],
     missing_base: list[str],
@@ -226,26 +256,14 @@ def post_gitlab_mr_note(
     CI_MERGE_REQUEST_IID is set) and either GITLAB_TOKEN (a project/PAT token
     with api scope) or CI_JOB_TOKEN in the environment.
     """
-    if not _is_gitlab_ci():
+    ctx = _gitlab_mr_context()
+    if ctx is None:
         return
-
-    mr_iid = os.environ.get("CI_MERGE_REQUEST_IID")
-    if not mr_iid:
-        return  # not a merge-request pipeline
+    server_url, project_id, mr_iid, auth_header = ctx
 
     # Only comment when there is something to report
     failed = [r for r in results if not r.equal]
     if not failed and not missing_base:
-        return
-
-    project_id = os.environ.get("CI_PROJECT_ID")
-    server_url = os.environ.get("CI_SERVER_URL", "https://gitlab.com").rstrip("/")
-
-    # Prefer an explicit token; fall back to the built-in job token
-    token = os.environ.get("GITLAB_TOKEN")
-    auth_header = ("PRIVATE-TOKEN", token) if token else ("JOB-TOKEN", os.environ.get("CI_JOB_TOKEN", ""))
-
-    if not project_id or not auth_header[1]:
         return
 
     body = _build_pr_comment(results, missing_base)
@@ -267,6 +285,46 @@ def post_gitlab_mr_note(
     except Exception as e:
         warnings.warn(
             f"pytest-drift: failed to post GitLab MR note: {e}",
+            DriftWarning,
+            stacklevel=2,
+        )
+
+
+def set_gitlab_mr_label(
+    results: list[ComparisonResult],
+    missing_base: list[str],
+) -> None:
+    """Add or remove the ``drift`` label on the GitLab MR.
+
+    Adds the label when any test drifts; removes it when none do. Uses the
+    ``add_labels``/``remove_labels`` MR-update params so existing labels on the
+    MR are left untouched.
+    """
+    ctx = _gitlab_mr_context()
+    if ctx is None:
+        return
+    server_url, project_id, mr_iid, auth_header = ctx
+
+    has_drift = any(not r.equal for r in results)
+    field = "add_labels" if has_drift else "remove_labels"
+    payload = json.dumps({field: GITLAB_DRIFT_LABEL}).encode("utf-8")
+    url = f"{server_url}/api/v4/projects/{project_id}/merge_requests/{mr_iid}"
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            auth_header[0]: auth_header[1],
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        warnings.warn(
+            f"pytest-drift: failed to set GitLab MR label: {e}",
             DriftWarning,
             stacklevel=2,
         )
