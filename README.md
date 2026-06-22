@@ -157,6 +157,8 @@ rules:
 
 `CI_PROJECT_ID`, `CI_SERVER_URL`, and `CI_JOB_TOKEN` are provided automatically by GitLab CI.
 
+In addition to the note, the plugin sets a `drift` label on the MR: the label is **added** when any test drifts and **removed** when none do. This uses the same MR pipeline and token requirements as the note, and leaves any other labels on the MR untouched.
+
 The JUnit XML report (`drift-report.xml`) is written independently and does not require a token — wire it up in your job artifacts to surface drift in the MR test widget:
 
 ```yaml
