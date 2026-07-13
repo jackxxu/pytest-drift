@@ -135,6 +135,10 @@ def run_base_branch(
     import tempfile
     args = [
         "--no-header", "-q", "--tb=no",
+        # A stale/renamed node id (e.g. a test re-parametrized on HEAD) would
+        # otherwise abort collection and void the entire base run, leaving every
+        # test with no base result. Tolerate it and run whatever still collects.
+        "--continue-on-collection-errors",
         "-p", "pytest_drift",
         "--rootdir", str(worktree_path),
         *node_ids,
