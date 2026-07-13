@@ -102,18 +102,7 @@ class WorktreeManager:
         )
 
 
-def run_base_branch(
-    worktree_path: Path,
-    node_ids: list[str],
-    results_dir: Path,
-    extra_env: dict[str, str] | None = None,
-) -> "subprocess.Popen[bytes]":
-    """
-    Launch a pytest subprocess in the worktree for the base branch.
-
-    The subprocess runs in BASE mode: it captures return values and writes
-    them to results_dir/base/, but does not start another subprocess.
-    """
+def _build_base_env(worktree_path: Path, results_dir: Path, extra_env: dict[str, str] | None) -> dict[str, str]:
     import os
 
     env = os.environ.copy()
@@ -128,6 +117,95 @@ def run_base_branch(
     env["PYTHONPATH"] = f"{wt}{os.pathsep}{existing}" if existing else wt
     if extra_env:
         env.update(extra_env)
+    return env
+
+
+def collect_base_node_ids(worktree_path: Path, node_ids: list[str], env: dict[str, str]) -> set[str]:
+    """Return the node ids that actually collect in the base worktree.
+
+    Passing an explicit node id that no longer exists on the base branch (e.g. a
+    test re-parametrized on HEAD, so its ``[param]`` suffix changed) makes pytest
+    raise a "not found" UsageError that aborts the *entire* run — and
+    ``--continue-on-collection-errors`` does not rescue it. So we first collect
+    the base branch's real node ids (per file, tolerating import errors) and let
+    the caller pass only the intersection.
+    """
+    files = sorted({nid.split("::")[0] for nid in node_ids if "::" in nid})
+    if not files:
+        return set()
+
+    import json
+    import os
+    import tempfile
+
+    # Read node ids straight off the collected items via an in-process plugin
+    # rather than parsing stdout: the target repo's addopts (e.g. ``-v``) change
+    # --collect-only formatting, which would otherwise defeat text parsing.
+    out_fd, out_name = tempfile.mkstemp(suffix=".json")
+    os.close(out_fd)
+    script_fd, script_name = tempfile.mkstemp(suffix=".py")
+    os.close(script_fd)
+
+    args = [
+        "--collect-only", "--continue-on-collection-errors",
+        "--rootdir", str(worktree_path),
+        *files,
+    ]
+    script_src = (
+        "import sys, json, pytest\n"
+        "class _C:\n"
+        "    def pytest_collection_modifyitems(self, items):\n"
+        f"        json.dump([i.nodeid for i in items], open({json.dumps(out_name)}, 'w'))\n"
+        f"sys.exit(pytest.main({json.dumps(args)}, plugins=[_C()]))\n"
+    )
+    with open(script_name, "w") as f:
+        f.write(script_src)
+
+    try:
+        subprocess.run(
+            [sys.executable, script_name],
+            cwd=worktree_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        try:
+            with open(out_name) as f:
+                ids = json.load(f)
+        except (OSError, ValueError):
+            ids = []
+    finally:
+        for p in (out_name, script_name):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+    return {nid.replace("\\", "/") for nid in ids}
+
+
+def run_base_branch(
+    worktree_path: Path,
+    node_ids: list[str],
+    results_dir: Path,
+    extra_env: dict[str, str] | None = None,
+) -> "subprocess.Popen[bytes]| None":
+    """
+    Launch a pytest subprocess in the worktree for the base branch.
+
+    The subprocess runs in BASE mode: it captures return values and writes
+    them to results_dir/base/, but does not start another subprocess.
+
+    Returns None if no requested node ids collect on the base branch.
+    """
+    env = _build_base_env(worktree_path, results_dir, extra_env)
+
+    # Only run node ids that actually exist on the base branch; a single stale
+    # id would otherwise abort the whole base run and void every comparison.
+    available = collect_base_node_ids(worktree_path, node_ids, env)
+    runnable = [nid for nid in node_ids if nid.replace("\\", "/") in available]
+    if not runnable:
+        return None
 
     # Write a wrapper script instead of passing node_ids on the command line,
     # to avoid Windows' command-line length limit ([WinError 206]).
@@ -135,13 +213,10 @@ def run_base_branch(
     import tempfile
     args = [
         "--no-header", "-q", "--tb=no",
-        # A stale/renamed node id (e.g. a test re-parametrized on HEAD) would
-        # otherwise abort collection and void the entire base run, leaving every
-        # test with no base result. Tolerate it and run whatever still collects.
         "--continue-on-collection-errors",
         "-p", "pytest_drift",
         "--rootdir", str(worktree_path),
-        *node_ids,
+        *runnable,
     ]
     script = tempfile.NamedTemporaryFile(
         suffix=".py", delete=False, mode="w", dir=str(results_dir),
