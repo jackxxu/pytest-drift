@@ -98,6 +98,8 @@ class RegressionPlugin:
                     node_ids,
                     self.results_dir,
                 )
+                if proc is None:
+                    return
                 self._base_proc = proc
                 stdout, stderr = proc.communicate()
                 self._base_stderr = stderr.decode(errors="replace")
